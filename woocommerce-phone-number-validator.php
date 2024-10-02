@@ -8,7 +8,7 @@
  * Author:                  Open WP Club
  * Author URI:              https://openwpclub.com
  * License:                 GPL-2.0 License
- * Requires:                WooCommerce
+ * Requires Plugins:        woocommerce
  * Requires at least:       6.0
  * Requires PHP:            7.4
  * Tested up to:            6.6.2
