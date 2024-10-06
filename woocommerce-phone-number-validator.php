@@ -4,7 +4,7 @@
  * Plugin Name:             WooCommerce Phone Number Validator
  * Plugin URI:              https://github.com/Open-WP-Club/WooCommerce-Phone-Number-Validator
  * Description:             Adds country-specific phone number validation to WooCommerce checkout
- * Version:                 1.0.0
+ * Version:                 1.1.0
  * Author:                  Open WP Club
  * Author URI:              https://openwpclub.com
  * License:                 GPL-2.0 License
@@ -33,6 +33,8 @@ class WC_Phone_Validator
     add_action('woocommerce_update_options_phone_validator', array($this, 'update_settings'));
     add_action('woocommerce_checkout_process', array($this, 'validate_phone_number'));
     add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
+    add_action('admin_menu', array($this, 'add_bulk_validation_menu'));
+    add_action('wp_ajax_bulk_validate_phone_numbers', array($this, 'bulk_validate_phone_numbers'));
   }
 
   public function add_settings_tab($settings_tabs)
@@ -74,6 +76,12 @@ class WC_Phone_Validator
         'desc'     => __('Enter a custom regex pattern to use for validation (optional)', 'woocommerce'),
         'id'       => 'wc_phone_validator_custom_regex'
       ),
+      'test_mode' => array(
+        'name'     => __('Test Mode', 'woocommerce'),
+        'type'     => 'checkbox',
+        'desc'     => __('Enable test mode. When active, phone validation will only be applied to admin and shop manager user roles.', 'woocommerce'),
+        'id'       => 'wc_phone_validator_test_mode'
+      ),
       'section_end' => array(
         'type' => 'sectionend',
         'id' => 'wc_phone_validator_section_end'
@@ -90,6 +98,12 @@ class WC_Phone_Validator
 
   public function validate_phone_number()
   {
+    $test_mode = get_option('wc_phone_validator_test_mode', 'no');
+
+    if ($test_mode === 'yes' && !current_user_can('manage_woocommerce')) {
+      return; // Skip validation for non-admin users when in test mode
+    }
+
     $billing_phone = $_POST['billing_phone'];
     $billing_country = $_POST['billing_country'];
 
@@ -122,6 +136,107 @@ class WC_Phone_Validator
       return;
     }
     wp_enqueue_script('wc-phone-validator-admin', plugins_url('admin.js', __FILE__), array('jquery'), '1.2', true);
+  }
+
+  public function add_bulk_validation_menu()
+  {
+    add_submenu_page(
+      'woocommerce',
+      __('Bulk Phone Validation', 'woocommerce'),
+      __('Bulk Phone Validation', 'woocommerce'),
+      'manage_woocommerce',
+      'wc-bulk-phone-validation',
+      array($this, 'bulk_validation_page')
+    );
+  }
+
+  public function bulk_validation_page()
+  {
+?>
+    <div class="wrap">
+      <h1><?php echo esc_html(__('Bulk Phone Number Validation', 'woocommerce')); ?></h1>
+      <p><?php echo esc_html(__('Click the button below to validate all customer phone numbers.', 'woocommerce')); ?></p>
+      <button id="bulk-validate-button" class="button button-primary">
+        <?php echo esc_html(__('Start Bulk Validation', 'woocommerce')); ?>
+      </button>
+      <div id="bulk-validation-results"></div>
+    </div>
+    <script>
+      jQuery(document).ready(function($) {
+        $('#bulk-validate-button').click(function() {
+          var $button = $(this);
+          var $results = $('#bulk-validation-results');
+
+          $button.prop('disabled', true);
+          $results.html('<?php echo esc_js(__('Validating...', 'woocommerce')); ?>');
+
+          $.ajax({
+            url: ajaxurl,
+            type: 'POST',
+            data: {
+              action: 'bulk_validate_phone_numbers'
+            },
+            success: function(response) {
+              $results.html(response);
+              $button.prop('disabled', false);
+            },
+            error: function() {
+              $results.html('<?php echo esc_js(__('An error occurred during validation.', 'woocommerce')); ?>');
+              $button.prop('disabled', false);
+            }
+          });
+        });
+      });
+    </script>
+<?php
+  }
+
+  public function bulk_validate_phone_numbers()
+  {
+    $customers = get_users(array('role' => 'customer'));
+    $results = array(
+      'valid' => 0,
+      'invalid' => 0,
+      'invalid_numbers' => array()
+    );
+
+    foreach ($customers as $customer) {
+      $phone = get_user_meta($customer->ID, 'billing_phone', true);
+      $country = get_user_meta($customer->ID, 'billing_country', true);
+
+      if ($this->is_valid_phone_number($phone, $country, '')) {
+        $results['valid']++;
+      } else {
+        $results['invalid']++;
+        $results['invalid_numbers'][] = array(
+          'user_id' => $customer->ID,
+          'phone' => $phone,
+          'country' => $country
+        );
+      }
+    }
+
+    $output = sprintf(
+      __('Validation complete. Valid numbers: %d, Invalid numbers: %d', 'woocommerce'),
+      $results['valid'],
+      $results['invalid']
+    );
+
+    if (!empty($results['invalid_numbers'])) {
+      $output .= '<h3>' . __('Invalid Numbers:', 'woocommerce') . '</h3><ul>';
+      foreach ($results['invalid_numbers'] as $invalid) {
+        $output .= sprintf(
+          '<li>User ID: %d, Phone: %s, Country: %s</li>',
+          $invalid['user_id'],
+          esc_html($invalid['phone']),
+          esc_html($invalid['country'])
+        );
+      }
+      $output .= '</ul>';
+    }
+
+    echo $output;
+    wp_die();
   }
 }
 
