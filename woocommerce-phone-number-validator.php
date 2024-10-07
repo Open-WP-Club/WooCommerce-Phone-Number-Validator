@@ -4,7 +4,7 @@
  * Plugin Name:             WooCommerce Phone Number Validator
  * Plugin URI:              https://github.com/Open-WP-Club/WooCommerce-Phone-Number-Validator
  * Description:             Adds country-specific phone number validation to WooCommerce checkout
- * Version:                 1.1.0
+ * Version:                 1.1.1
  * Author:                  Open WP Club
  * Author URI:              https://openwpclub.com
  * License:                 GPL-2.0 License
@@ -13,7 +13,6 @@
  * Requires PHP:            7.4
  * Tested up to:            6.6.2
  */
-
 
 if (!defined('ABSPATH')) {
   exit; // Exit if accessed directly
@@ -33,7 +32,6 @@ class WC_Phone_Validator
     add_action('woocommerce_update_options_phone_validator', array($this, 'update_settings'));
     add_action('woocommerce_checkout_process', array($this, 'validate_phone_number'));
     add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
-    add_action('admin_menu', array($this, 'add_bulk_validation_menu'));
     add_action('wp_ajax_bulk_validate_phone_numbers', array($this, 'bulk_validate_phone_numbers'));
   }
 
@@ -46,6 +44,9 @@ class WC_Phone_Validator
   public function settings_tab()
   {
     woocommerce_admin_fields($this->get_settings());
+    echo '<div class="wc-phone-validator-section">';
+    $this->output_bulk_validation_section();
+    echo '</div>';
   }
 
   public function update_settings()
@@ -135,104 +136,82 @@ class WC_Phone_Validator
     if ('woocommerce_page_wc-settings' !== $hook) {
       return;
     }
-    wp_enqueue_script('wc-phone-validator-admin', plugins_url('admin.js', __FILE__), array('jquery'), '1.2', true);
+    wp_enqueue_script('wc-phone-validator-admin', plugins_url('assets/js/admin.js', __FILE__), array('jquery'), '1.3', true);
+    wp_enqueue_style('wc-phone-validator-admin-style', plugins_url('assets/css/admin-style.css', __FILE__), array(), '1.1');
   }
 
-  public function add_bulk_validation_menu()
-  {
-    add_submenu_page(
-      'woocommerce',
-      __('Bulk Phone Validation', 'woocommerce'),
-      __('Bulk Phone Validation', 'woocommerce'),
-      'manage_woocommerce',
-      'wc-bulk-phone-validation',
-      array($this, 'bulk_validation_page')
-    );
-  }
-
-  public function bulk_validation_page()
+  private function output_bulk_validation_section()
   {
 ?>
-    <div class="wrap">
-      <h1><?php echo esc_html(__('Bulk Phone Number Validation', 'woocommerce')); ?></h1>
-      <p><?php echo esc_html(__('Click the button below to validate all customer phone numbers.', 'woocommerce')); ?></p>
-      <button id="bulk-validate-button" class="button button-primary">
-        <?php echo esc_html(__('Start Bulk Validation', 'woocommerce')); ?>
-      </button>
-      <div id="bulk-validation-results"></div>
-    </div>
-    <script>
-      jQuery(document).ready(function($) {
-        $('#bulk-validate-button').click(function() {
-          var $button = $(this);
-          var $results = $('#bulk-validation-results');
-
-          $button.prop('disabled', true);
-          $results.html('<?php echo esc_js(__('Validating...', 'woocommerce')); ?>');
-
-          $.ajax({
-            url: ajaxurl,
-            type: 'POST',
-            data: {
-              action: 'bulk_validate_phone_numbers'
-            },
-            success: function(response) {
-              $results.html(response);
-              $button.prop('disabled', false);
-            },
-            error: function() {
-              $results.html('<?php echo esc_js(__('An error occurred during validation.', 'woocommerce')); ?>');
-              $button.prop('disabled', false);
-            }
-          });
-        });
-      });
-    </script>
+    <h2><?php echo esc_html(__('Bulk Phone Number Validation', 'woocommerce')); ?></h2>
+    <p><?php echo esc_html(__('Click the button below to validate all user phone numbers.', 'woocommerce')); ?></p>
+    <button id="bulk-validate-button" class="button button-secondary">
+      <?php echo esc_html(__('Start Bulk Validation', 'woocommerce')); ?>
+    </button>
+    <div id="bulk-validation-results"></div>
 <?php
   }
 
   public function bulk_validate_phone_numbers()
   {
-    $customers = get_users(array('role' => 'customer'));
+    $users = get_users();
     $results = array(
       'valid' => 0,
       'invalid' => 0,
-      'invalid_numbers' => array()
+      'missing' => 0,
+      'invalid_users' => array()
     );
 
-    foreach ($customers as $customer) {
-      $phone = get_user_meta($customer->ID, 'billing_phone', true);
-      $country = get_user_meta($customer->ID, 'billing_country', true);
+    foreach ($users as $user) {
+      $phone = get_user_meta($user->ID, 'billing_phone', true);
+      $country = get_user_meta($user->ID, 'billing_country', true);
 
-      if ($this->is_valid_phone_number($phone, $country, '')) {
+      if (empty($phone)) {
+        $results['missing']++;
+        $results['invalid_users'][] = array(
+          'user_id' => $user->ID,
+          'username' => $user->user_login,
+          'email' => $user->user_email,
+          'issue' => 'Missing phone number'
+        );
+      } elseif ($this->is_valid_phone_number($phone, $country, '')) {
         $results['valid']++;
       } else {
         $results['invalid']++;
-        $results['invalid_numbers'][] = array(
-          'user_id' => $customer->ID,
+        $results['invalid_users'][] = array(
+          'user_id' => $user->ID,
+          'username' => $user->user_login,
+          'email' => $user->user_email,
           'phone' => $phone,
-          'country' => $country
+          'country' => $country,
+          'issue' => 'Invalid phone number'
         );
       }
     }
 
     $output = sprintf(
-      __('Validation complete. Valid numbers: %d, Invalid numbers: %d', 'woocommerce'),
+      __('Validation complete. Valid numbers: %d, Invalid numbers: %d, Missing numbers: %d', 'woocommerce'),
       $results['valid'],
-      $results['invalid']
+      $results['invalid'],
+      $results['missing']
     );
 
-    if (!empty($results['invalid_numbers'])) {
-      $output .= '<h3>' . __('Invalid Numbers:', 'woocommerce') . '</h3><ul>';
-      foreach ($results['invalid_numbers'] as $invalid) {
+    if (!empty($results['invalid_users'])) {
+      $output .= '<h3>' . __('Users with Invalid or Missing Phone Numbers:', 'woocommerce') . '</h3>';
+      $output .= '<table class="wp-list-table widefat fixed striped">';
+      $output .= '<thead><tr><th>User ID</th><th>Username</th><th>Email</th><th>Phone</th><th>Country</th><th>Issue</th></tr></thead><tbody>';
+      foreach ($results['invalid_users'] as $invalid) {
         $output .= sprintf(
-          '<li>User ID: %d, Phone: %s, Country: %s</li>',
+          '<tr><td>%d</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
           $invalid['user_id'],
-          esc_html($invalid['phone']),
-          esc_html($invalid['country'])
+          esc_html($invalid['username']),
+          esc_html($invalid['email']),
+          isset($invalid['phone']) ? esc_html($invalid['phone']) : '-',
+          isset($invalid['country']) ? esc_html($invalid['country']) : '-',
+          esc_html($invalid['issue'])
         );
       }
-      $output .= '</ul>';
+      $output .= '</tbody></table>';
     }
 
     echo $output;
@@ -240,4 +219,10 @@ class WC_Phone_Validator
   }
 }
 
-new WC_Phone_Validator();
+function wc_phone_validator_init()
+{
+  if (class_exists('WooCommerce')) {
+    new WC_Phone_Validator();
+  }
+}
+add_action('plugins_loaded', 'wc_phone_validator_init');
