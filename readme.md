@@ -47,6 +47,22 @@ When Test Mode is enabled, phone number validation will only be applied to admin
 
 If you need to use a custom regex pattern for phone number validation, you can enter it in the Custom Regex field. This will override the default country-specific patterns for all selected countries.
 
+<!-- OPENWPCLUB_SPONSORS_START -->
+## Open-source supporters
+
+These companies help keep Open WP Club plugins free and maintained.
+
+[![Open WP Club supporters](https://openwpclub.com/sponsorship/supporters.png)](https://openwpclub.com/sponsors/)
+
+## Sponsored placements
+
+Clearly labelled promotional campaigns, separate from our supporters.
+
+[![Open WP Club sponsored placements](https://openwpclub.com/sponsorship/repos/woocommerce-phone-number-validator/campaigns.png)](https://openwpclub.com/advertise/)
+
+[Support our work](https://openwpclub.com/sponsors/) · [Discuss a campaign](https://openwpclub.com/advertise/)
+<!-- OPENWPCLUB_SPONSORS_END -->
+
 ## Support
 
 If you encounter any issues or have questions, please open an issue on the plugin's GitHub repository.
